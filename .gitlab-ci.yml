@@ -1,0 +1,329 @@
+variables:
+  # The domain used for the live deploy_prodment
+  KUBE_NAMESPACE_dev: dev
+  KUBE_NAMESPACE_staging: staging
+  KUBE_NAMESPACE_qa: qa
+  KUBE_NAMESPACE_prod: prod
+  IP_DEV: 79.125.71.120 #Remplacer par votre IP de la VM
+  IP_STAGING: 79.125.71.120 #Remplacer par votre IP de la VM
+  IP_PROD: 79.125.71.120 #Remplacer par votre IP de la VM
+  NODEPORT_DEV: 30000
+  NODEPORT_QA: 30001
+  NODEPORT_STAGING: 30002
+  NODEPORT_PROD: 30003
+  IMAGE_GATEWAY: "maikimike/k-api-gateway"
+  IMAGE_USERS: "maikimike/k-users"
+  IMAGE_ORDERS: "maikimike/k-orders"
+  REGISTRY_URL: "https://index.docker.io/v1/"
+
+image:
+  name: "python:3.11-alpine"
+  entrypoint: ["/bin/sh", "-c"]
+
+stages:
+  - test
+  - gateway
+  - orders
+  - users
+  - deploy_dev
+  - deploy_qa
+  - deploy_staging
+  - deploy_prod
+
+test-users:
+  stage: test
+  image: python:latest
+  before_script:
+    # Show docker daemon info (optional, good for debugging) ???
+    - sudo apt install python3-pip python3-venv -y
+  script:
+    - cd users
+    - python3 -m venv venv  # Create Python virtual environment
+    - source venv/bin/activate  # Activate virtual environment
+    - pip install -r requirements.txt  # Install dependencies
+    - python3 -m unittest tests/auth.py # Run unit tests
+    - python3 -m unittest tests/fake_db.py # Run unit tests
+
+.test-gateway:
+  stage: test
+  image: python:latest
+  before_script:
+    # Show docker daemon info (optional, good for debugging)
+  script:
+    - sudo apt install python3-pip -y
+    - pip install --user pipenv
+    - pipenv install -r users/requirements.txt
+    # - pipenv shell
+    # - python3 -m unittest users/tests/auth.py
+    # - python3 -m unittest users/tests/fake_db.py
+    - pipenv run python3 -m unittest users/tests/auth.py
+    - pipenv run python3 -m unittest users/tests/fake_db.py
+
+.test-orders:
+  stage: test
+  image: python:latest
+  before_script:
+    # Show docker daemon info (optional, good for debugging)
+  script:
+    - sudo apt install python3-pip -y
+    - pip install --user pipenv
+    - pipenv install -r users/requirements.txt
+    # - pipenv shell
+    # - python3 -m unittest users/tests/auth.py
+    # - python3 -m unittest users/tests/fake_db.py
+    - pipenv run python3 -m unittest users/tests/auth.py
+    - pipenv run python3 -m unittest users/tests/fake_db.py
+
+build-gateway:
+  stage: gateway
+  script:
+    - cd gateway
+    - echo "$DOCKER_TOKEN" | docker login "$REGISTRY_URL" -u "$DOCKER_USERNAME" --password-stdin
+    # Build the container image
+    - docker build -t "$IMAGE_GATEWAY:latest" .
+    # Tag the container image from latest to the commit ref
+    - docker tag "$IMAGE_GATEWAY:latest" "$IMAGE_GATEWAY:$CI_COMMIT_SHORT_SHA"
+
+run-gateway:
+  stage: gateway
+  needs: ["build-gateway"]
+  script:
+    # Build the container image
+    - docker run -d -p 80:8001 --name gateway "$IMAGE_GATEWAY:latest"
+    - sleep 10
+    - curl localhost:80
+    - docker stop gateway
+    - docker rm gateway
+
+push-gateway:
+  stage: gateway
+  needs: ["run-gateway"]
+  before_script:
+    - docker info
+    # Login to the Gitlab Container registry
+    # - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - echo "$DOCKER_TOKEN" | docker login "$REGISTRY_URL" -u "$DOCKER_USERNAME" --password-stdin
+  script:
+    # Push the container image
+    - docker push "$IMAGE_GATEWAY:$CI_COMMIT_SHORT_SHA"
+    # If we are building a tag, push the `latest` container image tag too
+    - if [ ! -z "$CI_COMMIT_TAG" ]; then docker push "$IMAGE_GATEWAY:latest"; fi
+
+build-orders:
+  stage: orders
+  script:
+    - cd orders
+    - echo "$DOCKER_TOKEN" | docker login "$REGISTRY_URL" -u "$DOCKER_USERNAME" --password-stdin
+    # Build the container image
+    - docker build -t "$IMAGE_ORDERS:latest" .
+    # Tag the container image from latest to the commit ref
+    - docker tag "$IMAGE_ORDERS:latest" "$IMAGE_ORDERS:$CI_COMMIT_SHORT_SHA"
+
+run-orders:
+  stage: orders
+  needs: ["build-orders"]
+  script:
+    # Build the container image
+    - docker run -d -p 80:8000 --name orders "$IMAGE_ORDERS:latest"
+    - sleep 10
+    - curl localhost:80
+    - docker stop orders
+    - docker rm orders
+
+push-orders:
+  stage: orders
+  needs: ["run-orders"]
+  before_script:
+    - docker info
+    # Login to the Gitlab Container registry
+    # - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - echo "$DOCKER_TOKEN" | docker login "$REGISTRY_URL" -u "$DOCKER_USERNAME" --password-stdin
+  script:
+    # Push the container image
+    - docker push "$IMAGE_ORDERS:$CI_COMMIT_SHORT_SHA"
+    # If we are building a tag, push the `latest` container image tag too
+    - if [ ! -z "$CI_COMMIT_TAG" ]; then docker push "$IMAGE_ORDERS:latest"; fi
+
+build-users:
+  stage: users
+  script:
+    - cd users
+    - echo "$DOCKER_TOKEN" | docker login "$REGISTRY_URL" -u "$DOCKER_USERNAME" --password-stdin
+    # Build the container image
+    - docker build -t "$IMAGE_USERS:latest" .
+    # Tag the container image from latest to the commit ref
+    - docker tag "$IMAGE_USERS:latest" "$IMAGE_USERS:$CI_COMMIT_SHORT_SHA"
+
+run-users:
+  stage: users
+  needs: ["build-users"]
+  script:
+    # Build the container image
+    - docker run -d -p 80:8000 --name users "$IMAGE_USERS:latest"
+    - sleep 10
+    - curl localhost:80
+    - docker stop users
+    - docker rm users
+
+push-users:
+  stage: users
+  needs: ["run-users"]
+  before_script:
+    - docker info
+    # Login to the Gitlab Container registry
+    # - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - echo "$DOCKER_TOKEN" | docker login "$REGISTRY_URL" -u "$DOCKER_USERNAME" --password-stdin
+  script:
+    # Push the container image
+    - docker push "$IMAGE_USERS:$CI_COMMIT_SHORT_SHA"
+    # If we are building a tag, push the `latest` container image tag too
+    - if [ ! -z "$CI_COMMIT_TAG" ]; then docker push "$IMAGE_USERS:latest"; fi
+
+stop_dev:
+  stage: deploy_dev
+  variables:
+    NAMESPACE: dev
+  when: manual
+  # Don't stop the "review" for master branch or tags,
+  # it is only for branches (so PRs (most of the time))
+  environment:
+    name: dev-$CI_BUILD_REF_NAME
+    action: stop
+  script:
+    - sudo helm uninstall app -n $NAMESPACE
+
+stop_qa:
+  stage: deploy_qa
+  variables:
+    NAMESPACE: qa
+  when: manual
+  # Don't stop the "review" for master branch or tags,
+  # it is only for branches (so PRs (most of the time))
+  environment:
+    name: qa-$CI_BUILD_REF_NAME
+    action: stop
+  script:
+    - sudo helm uninstall app -n $NAMESPACE
+
+stop_staging:
+  stage: deploy_staging
+  variables:
+    NAMESPACE: staging
+  when: manual
+  # Don't stop the "review" for master branch or tags,
+  # it is only for branches (so PRs (most of the time))
+  environment:
+    name: staging-$CI_BUILD_REF_NAME
+    action: stop
+  script:
+    - sudo helm uninstall app -n $NAMESPACE
+
+stop_prod:
+  stage: deploy_prod
+  variables:
+    NAMESPACE: prod
+  when: manual
+  # Don't stop the "review" for master branch or tags,
+  # it is only for branches (so PRs (most of the time))
+  environment:
+    name: prod
+    action: stop
+  script:
+    - sudo helm uninstall app -n $NAMESPACE
+
+deploy_dev:
+  # Use the official docker image.
+  image: docker:latest
+  environment:
+    name: dev-$CI_BUILD_REF_NAME
+    url: http://$IP_DEV:$NODEPORT_DEV
+    on_stop: stop_dev
+  stage: deploy_dev
+  variables:
+    NAMESPACE: dev
+
+  services:
+    - docker:dind
+  # Default branch leaves tag empty (= latest tag)
+  # All other branches are tagged with the escaped branch name (commit ref slug)
+  script:
+    - rm -Rf .kube
+    - mkdir .kube
+    - ls
+    - cat $KUBE_CONFIG > .kube/config
+    - cp helm/values.yaml values.yml
+    - cat values.yml
+    - sudo helm upgrade --install app "helm/" --values=values.yml --namespace "$NAMESPACE" --set namespace="$NAMESPACE" --set gateway.image.repository="$IMAGE_GATEWAY" --set gateway.image.tag="$CI_COMMIT_SHORT_SHA" --set gateway.service.nodePort="$NODEPORT_DEV" --set orders.image.repository="$IMAGE_ORDERS" --set orders.image.tag="$CI_COMMIT_SHORT_SHA" --set users.image.repository="$IMAGE_USERS" --set users.image.tag="$CI_COMMIT_SHORT_SHA"
+
+deploy_qa:
+  # Use the official docker image.
+  image: docker:latest
+  environment:
+    name: qa-$CI_BUILD_REF_NAME
+    url: http://$IP_DEV:$NODEPORT_QA
+    on_stop: stop_qa
+  stage: deploy_qa
+  variables:
+    NAMESPACE: qa
+
+  services:
+    - docker:dind
+  # Default branch leaves tag empty (= latest tag)
+  # All other branches are tagged with the escaped branch name (commit ref slug)
+  script:
+    - rm -Rf .kube
+    - mkdir .kube
+    - ls
+    - cat $KUBE_CONFIG > .kube/config
+    - cp helm/values.yaml values.yml
+    - cat values.yml
+    - sudo helm upgrade --install app "helm/" --values=values.yml --namespace $NAMESPACE --set namespace="$NAMESPACE" --set gateway.image.repository="$IMAGE_GATEWAY" --set gateway.image.tag="$CI_COMMIT_SHORT_SHA" --set gateway.service.nodePort="$NODEPORT_QA" --set orders.image.repository="$IMAGE_ORDERS" --set orders.image.tag="$CI_COMMIT_SHORT_SHA" --set users.image.repository="$IMAGE_USERS" --set users.image.tag="$CI_COMMIT_SHORT_SHA"
+
+deploy_staging:
+  # Use the official docker image.
+  image: docker:latest
+  environment:
+    name: staging-$CI_BUILD_REF_NAME
+    url: http://$IP_STAGING:$NODEPORT_STAGING
+    on_stop: stop_staging
+  stage: deploy_staging
+  variables:
+    NAMESPACE: staging
+
+  services:
+    - docker:dind
+  # Default branch leaves tag empty (= latest tag)
+  # All other branches are tagged with the escaped branch name (commit ref slug)
+  script:
+    - rm -Rf .kube
+    - mkdir .kube
+    - ls
+    - cat $KUBE_CONFIG > .kube/config
+    - cp helm/values.yaml values.yml
+    - cat values.yml
+    - sudo helm upgrade --install app "helm/" --values=values.yml --namespace $NAMESPACE --set namespace="$NAMESPACE" --set gateway.image.repository="$IMAGE_GATEWAY" --set gateway.image.tag="$CI_COMMIT_SHORT_SHA" --set gateway.service.nodePort="$NODEPORT_STAGING" --set orders.image.repository="$IMAGE_ORDERS" --set orders.image.tag="$CI_COMMIT_SHORT_SHA" --set users.image.repository="$IMAGE_USERS" --set users.image.tag="$CI_COMMIT_SHORT_SHA"
+
+deploy_prod:
+  # Use the official docker image.
+  image: docker:latest
+  when: manual
+  environment:
+    name: prod
+    url: http://$IP_PROD:$NODEPORT_PROD
+    on_stop: stop_prod
+  stage: deploy_prod
+  variables:
+    NAMESPACE: prod
+  services:
+    - docker:dind
+  # Default branch leaves tag empty (= latest tag)
+  # All other branches are tagged with the escaped branch name (commit ref slug)
+  script:
+    - rm -Rf ~/.kube
+    - mkdir ~/.kube/
+    - ls
+    - cat $KUBE_CONFIG > ~/.kube/config
+    - kubectl config view --raw >~/.kube/config
+    - cp helm/values.yaml values.yml
+    - cat values.yml
+    - sudo helm upgrade --install app "helm/" --values=values.yml --namespace "$NAMESPACE" --set namespace="$NAMESPACE" --set gateway.image.repository="$IMAGE_GATEWAY" --set gateway.image.tag="$CI_COMMIT_SHORT_SHA" --set gateway.service.nodePort="$NODEPORT_PROD" --set orders.image.repository="$IMAGE_ORDERS" --set orders.image.tag="$CI_COMMIT_SHORT_SHA" --set users.image.repository="$IMAGE_USERS" --set users.image.tag="$CI_COMMIT_SHORT_SHA"

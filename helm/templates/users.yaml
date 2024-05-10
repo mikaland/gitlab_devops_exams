@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: users
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: users
+spec:
+  selector:
+    matchLabels:
+      app: users
+  replicas: 1
+  # strategy:
+  #   rollingUpdate:
+  #     maxSurge: 25%
+  #     maxUnavailable: 25%
+  #   type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: users
+    spec:
+      # initContainers:
+      # Init containers are exactly like regular containers, except:
+      # - Init containers always run to completion.
+      # - Each init container must complete successfully before the next one starts.
+      containers:
+        - name: users
+          # image: maikimike/k-users:latest
+          image: "{{ .Values.users.image.repository }}:{{ .Values.users.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "uvicorn main:app --reload --host 0.0.0.0"]
+          resources: {}
+            # requests:
+            #   cpu: 100m
+            #   memory: 100Mi
+            # limits:
+            #   cpu: 100m
+            #   memory: 100Mi
+          # livenessProbe:
+          #   tcpSocket:
+          #     port: 80
+          #   initialDelaySeconds: 5
+          #   timeoutSeconds: 5
+          #   successThreshold: 1
+          #   failureThreshold: 3
+          #   periodSeconds: 10
+          # readinessProbe:
+          #   httpGet:
+          #     path: /_status/healthz
+          #     port: 80
+          #   initialDelaySeconds: 5
+          #   timeoutSeconds: 2
+          #   successThreshold: 1
+          #   failureThreshold: 3
+          #   periodSeconds: 10
+          ports:
+            - containerPort: 8000
+              name: users
+      # restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: users
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: users
+  type: ClusterIP
+  # sessionAffinity: None
+  # sessionAffinityConfig:
+  #   clientIP:
+  #     timeoutSeconds: 10800
+  ports:
+    - name: users
+      protocol: TCP
+      port: 8000
+      targetPort: 8000
+      # If you set the `spec.type` field to `NodePort` and you want a specific port number,
+      # you can specify a value in the `spec.ports[*].nodePort` field.
+      # nodePort:

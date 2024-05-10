@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: default
+  labels:
+    app: gateway
+spec:
+  selector:
+    matchLabels:
+      app: gateway
+  replicas: 1
+  # strategy:
+  #   rollingUpdate:
+  #     maxSurge: 25%
+  #     maxUnavailable: 25%
+  #   type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      # initContainers:
+      # Init containers are exactly like regular containers, except:
+      # - Init containers always run to completion.
+      # - Each init container must complete successfully before the next one starts.
+      containers:
+        - name: gateway
+          image: maikimike/k-api-gateway:latest
+          command: ["sh", "-c", "uvicorn main:app --reload --host 0.0.0.0"]
+          resources: {}
+          #   requests:
+          #     cpu: 100m
+          #     memory: 100Mi
+          #   limits:
+          #     cpu: 100m
+          #     memory: 100Mi
+          # livenessProbe:
+          #   tcpSocket:
+          #     port: 80
+          #   initialDelaySeconds: 5
+          #   timeoutSeconds: 5
+          #   successThreshold: 1
+          #   failureThreshold: 3
+          #   periodSeconds: 10
+          # readinessProbe:
+          #   httpGet:
+          #     path: /_status/healthz
+          #     port: 80
+          #   initialDelaySeconds: 5
+          #   timeoutSeconds: 2
+          #   successThreshold: 1
+          #   failureThreshold: 3
+          #   periodSeconds: 10
+          env:
+            - name: USERS_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: gateway
+                  key: USERS_SERVICE_URL
+            - name: ORDERS_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: gateway
+                  key: ORDERS_SERVICE_URL
+          ports:
+            - containerPort: 8000
+              name: gateway
+      restartPolicy: Always
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: gateway
+  namespace: default
+data:
+  USERS_SERVICE_URL: http://users:8000
+  ORDERS_SERVICE_URL: http://orders:8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: default
+spec:
+  selector:
+    app: gateway
+  type: NodePort
+  # sessionAffinity: None
+  # sessionAffinityConfig:
+  #   clientIP:
+  #     timeoutSeconds: 10800
+  ports:
+    - name: gateway
+      protocol: TCP
+      port: 8001
+      targetPort: 8000
+      # If you set the `spec.type` field to `NodePort` and you want a specific port number,
+      # you can specify a value in the `spec.ports[*].nodePort` field.
+      nodePort: 30080
