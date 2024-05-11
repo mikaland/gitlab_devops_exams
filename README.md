@@ -53,3 +53,6 @@
 
 ##Documentation Page
 ![ScreenShot](https://raw.githubusercontent.com/DataScientest/gitlab_devops_exams/main/docs.png)
+
+##Pipline 
+![ScreenShot](https://raw.githubusercontent.com/mikaland/gitlab_devops_exams/main/screen-ci-cd.png)
